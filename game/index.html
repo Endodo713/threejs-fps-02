@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JADE PASS</title>
+<style>
+  /*
+   * LOOK PLAN — JADE PASS
+   * A mountain shrine pass at golden morning: deep moss green and bamboo gold-green,
+   * vermilion torii red, pale mist sky, dark slate stone. The HUD is quiet on purpose —
+   * dark translucent panels, hairline borders, one gold accent (#e8b13a) reserved for
+   * things that matter (timer, money, the charge chip, the buy button). Team colours
+   * do the talking elsewhere: teal #2fa8a0 for MONSOON (you), vermilion #d84a2f for
+   * JADE WATCH. Readouts are monospace; labels are small caps system-ui. Nothing on
+   * the HUD is decorative chrome for its own sake: every panel answers one question
+   * a player asks mid-round (how hurt am I, how much ammo, where is everyone, how
+   * long is left, can I buy). Panels sit at the screen edges so the bamboo corridor
+   * in the middle stays clean, and the crosshair is the only thing at dead centre.
+   * Palette values are duplicated here from game/src/palette.js on purpose — the HUD
+   * must render even before any JS runs.
+   */
+  :root {
+    --canvas: #141a14;
+    --surface: #1e2a1e;
+    --surface-soft: rgba(20, 26, 20, 0.72);
+    --hairline: #33402f;
+    --ink: #eef2e4;
+    --muted: #9aa894;
+    --accent: #e8b13a;
+    --accent-red: #d84a2f;
+    --teal: #2fa8a0;
+    --moss: #4a6b3f;
+    --bamboo: #7fae4e;
+    --vermilion: #c23b22;
+    --slate: #3a4148;
+    --radius-panel: 4px;
+    --radius-control: 8px;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-ui);
+  }
+  #game, #game canvas { position: fixed; inset: 0; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+  .panel {
+    background: var(--surface-soft);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-panel);
+    backdrop-filter: blur(2px);
+  }
+  .label {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .readout { font-family: var(--font-readout); }
+
+  /* Centre: crosshair + hitmarker. */
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
+  #crosshair i { position: absolute; background: var(--ink); opacity: 0.9; }
+  #crosshair i:nth-child(1) { left: 10px; top: 0; width: 2px; height: 7px; }
+  #crosshair i:nth-child(2) { left: 10px; bottom: 0; width: 2px; height: 7px; }
+  #crosshair i:nth-child(3) { top: 10px; left: 0; height: 2px; width: 7px; }
+  #crosshair i:nth-child(4) { top: 10px; right: 0; height: 2px; width: 7px; }
+  #hitmarker { position: fixed; left: 50%; top: 50%; width: 28px; height: 28px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; transition: opacity 90ms linear; }
+  #hitmarker.on { opacity: 1; }
+  #hitmarker.kill i { background: var(--accent-red); }
+  #hitmarker i { position: absolute; background: var(--accent); }
+  #hitmarker i:nth-child(1) { left: 13px; top: 0; width: 2px; height: 9px; }
+  #hitmarker i:nth-child(2) { left: 13px; bottom: 0; width: 2px; height: 9px; }
+  #hitmarker i:nth-child(3) { top: 13px; left: 0; height: 2px; width: 9px; }
+  #hitmarker i:nth-child(4) { top: 13px; right: 0; height: 2px; width: 9px; }
+
+  /* Top centre: scoreboard — MONSOON | timer | JADE WATCH, round underneath. */
+  #scoreboard {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 16px;
+    font-family: var(--font-readout); font-size: 15px;
+  }
+  #scoreboard .team-a { color: var(--teal); font-weight: 700; }
+  #scoreboard .team-b { color: var(--accent-red); font-weight: 700; }
+  #scoreboard .score { font-size: 22px; font-weight: 700; color: var(--ink); }
+  #scoreboard .timer { min-width: 58px; text-align: center; color: var(--accent); font-size: 18px; }
+  #scoreboard .round { font-size: 11px; color: var(--muted); letter-spacing: 0.12em; }
+
+  /* Top left: minimap. Top right: killfeed. */
+  #minimap { position: fixed; top: 14px; left: 14px; border: 1px solid var(--hairline); border-radius: var(--radius-panel); background: rgba(20, 26, 20, 0.78); }
+  #killfeed {
+    position: fixed; top: 14px; right: 14px; width: 300px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    font-family: var(--font-readout); font-size: 12px; color: var(--ink);
+  }
+  #killfeed div { background: var(--surface-soft); border: 1px solid var(--hairline); border-radius: var(--radius-panel); padding: 3px 8px; }
+  #killfeed b { color: var(--accent-red); }
+
+  /* Centre banners: round banner + site (plant) banner. */
+  #banner {
+    position: fixed; top: 96px; left: 50%; transform: translateX(-50%);
+    padding: 10px 22px; text-align: center;
+  }
+  #banner[hidden], #site-banner[hidden], #plant-bar[hidden], #charge-chip[hidden] { display: none; }
+  #banner .banner-title { font-size: 22px; font-weight: 700; letter-spacing: 0.08em; }
+  #banner .banner-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  #site-banner {
+    position: fixed; top: 168px; left: 50%; transform: translateX(-50%);
+    padding: 6px 14px; font-family: var(--font-readout); font-size: 13px;
+    color: var(--accent); border-color: var(--accent);
+  }
+
+  /* Bottom left: health / armour / money / radio. */
+  #vitals { position: fixed; left: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 8px; width: 220px; }
+  #health, #armour { padding: 8px 12px; display: flex; align-items: baseline; gap: 10px; }
+  #health .value, #armour .value { font-family: var(--font-readout); font-size: 28px; line-height: 1; }
+  #health.low .value { color: var(--accent-red); }
+  #health .bar, #armour .bar { flex: 1; height: 5px; background: var(--hairline); border-radius: 3px; overflow: hidden; align-self: center; }
+  #health .bar i, #armour .bar i { display: block; height: 100%; background: var(--ink); }
+  #armour .bar i { background: var(--teal); }
+  #money { padding: 6px 12px; font-family: var(--font-readout); font-size: 18px; color: var(--accent); align-self: flex-start; }
+  #radio {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: var(--muted); max-width: 320px;
+  }
+  #radio div { background: var(--surface-soft); border-left: 2px solid var(--teal); padding: 3px 8px; }
+  #radio div b { color: var(--teal); }
+
+  /* Bottom right: weapon name, slots, ammo. */
+  #loadout { position: fixed; right: 24px; bottom: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #weapon-name { font-family: var(--font-readout); font-size: 14px; letter-spacing: 0.14em; color: var(--ink); }
+  #slots { display: flex; gap: 6px; font-family: var(--font-readout); font-size: 11px; }
+  #slots span { padding: 3px 7px; border: 1px solid var(--hairline); border-radius: var(--radius-panel); color: var(--muted); background: var(--surface-soft); }
+  #slots span.active { border-color: var(--accent); color: var(--accent); }
+  #ammo { display: flex; align-items: baseline; gap: 8px; font-family: var(--font-readout); font-size: 56px; line-height: 1; letter-spacing: -0.03em; }
+  #ammo.empty #ammo-mag { color: var(--accent-red); }
+  #ammo-reserve { font-size: 16px; color: var(--muted); }
+  #ammo .reloading { font-size: 13px; color: var(--accent); }
+
+  /* Bottom centre: charge chip, plant progress, hint. */
+  #charge-chip {
+    position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+    padding: 6px 14px; font-family: var(--font-readout); font-size: 13px;
+    color: var(--accent); border: 1px solid var(--accent);
+    background: var(--surface-soft); border-radius: var(--radius-panel);
+    letter-spacing: 0.1em;
+  }
+  #plant-bar { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); width: 260px; padding: 6px 10px; text-align: center; }
+  #plant-bar .label { display: block; margin-bottom: 4px; }
+  #plant-bar .track { height: 6px; background: var(--hairline); border-radius: 3px; overflow: hidden; }
+  #plant-fill { display: block; height: 100%; width: 0%; background: var(--accent); }
+  #hint { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 12px; color: var(--muted); }
+
+  /* Flash-blind overlay (white-out from a dawn grenade). */
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 900ms linear; z-index: 3; }
+
+  /* Buy menu: the only HUD element that takes pointer input. */
+  #buy { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 4; }
+  #buy[hidden] { display: none; }
+  #buy .buy-panel {
+    pointer-events: auto; width: min(680px, 94vw); max-height: 86vh; overflow: auto;
+    padding: 20px 22px; background: rgba(20, 26, 20, 0.96);
+    border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+  }
+  #buy h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: 0.06em; }
+  #buy .buy-money { font-family: var(--font-readout); color: var(--accent); margin-bottom: 14px; }
+  #buy .buy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  #buy .buy-card {
+    padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+    background: var(--surface); cursor: pointer; text-align: left; color: var(--ink); font: inherit;
+  }
+  #buy .buy-card:hover:not(:disabled) { border-color: var(--accent); }
+  #buy .buy-card:disabled { opacity: 0.4; cursor: default; }
+  #buy .buy-card .buy-name { font-family: var(--font-readout); font-size: 13px; font-weight: 700; }
+  #buy .buy-card .buy-kind { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  #buy .buy-card .buy-price { font-family: var(--font-readout); font-size: 14px; color: var(--accent); margin-top: 6px; }
+  #buy .buy-hint { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+  /* Start / pause / end overlay. */
+  #overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(20, 26, 20, 0.86); z-index: 5; }
+  #overlay[hidden] { display: none; }
+  #overlay .panel { width: min(460px, 100%); padding: 32px; background: var(--surface); }
+  #overlay h1 { margin: 0 0 8px; font-size: 34px; line-height: 1.15; letter-spacing: 0.04em; color: var(--accent); }
+  #overlay p { margin: 0 0 24px; max-width: 46ch; font-size: 16px; line-height: 1.5; color: var(--muted); }
+  #play {
+    font: inherit; font-weight: 600; padding: 12px 18px; white-space: nowrap;
+    border: 1px solid var(--accent); border-radius: var(--radius-control);
+    background: var(--accent); color: var(--canvas); cursor: pointer;
+  }
+  #play:hover { background: var(--ink); border-color: var(--ink); }
+  #play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .keys { margin: 24px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; color: var(--muted); }
+  .keys li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .keys kbd {
+    min-width: 24px; padding: 2px 6px; border: 1px solid var(--hairline);
+    border-radius: var(--radius-panel); font-family: var(--font-readout);
+    font-size: 12px; color: var(--ink); text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #hitmarker, #play, #flash { transition-duration: 0.01ms; }
+  }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud" aria-hidden="true">
+  <canvas id="minimap" width="180" height="180"></canvas>
+
+  <div id="scoreboard" class="panel">
+    <span class="team-a">MONSOON</span>
+    <span class="score" id="score-a">0</span>
+    <span class="timer readout" id="timer">1:40</span>
+    <span class="score" id="score-b">0</span>
+    <span class="team-b">JADE WATCH</span>
+    <span class="round" id="round-label">ROUND 1 / 12</span>
+  </div>
+
+  <div id="killfeed"></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+  <div id="banner" class="panel" hidden>
+    <div class="banner-title" id="banner-title"></div>
+    <div class="banner-sub" id="banner-sub"></div>
+  </div>
+  <div id="site-banner" class="panel" hidden></div>
+
+  <div id="vitals">
+    <div id="radio"></div>
+    <div id="health" class="panel">
+      <span class="label">Vit</span>
+      <span class="value" id="health-value">100</span>
+      <span class="bar"><i id="health-bar" style="width:100%"></i></span>
+    </div>
+    <div id="armour" class="panel">
+      <span class="label">Armour</span>
+      <span class="value" id="armour-value">0</span>
+      <span class="bar"><i id="armour-bar" style="width:0%"></i></span>
+    </div>
+    <div id="money" class="panel">$800</div>
+  </div>
+
+  <div id="loadout">
+    <div id="weapon-name">KOI-9</div>
+    <div id="slots">
+      <span data-slot="1">1 TYPHOON</span>
+      <span data-slot="2">2 CICADA</span>
+      <span data-slot="3">3 KOI-9</span>
+      <span data-slot="4">4 THUNDER</span>
+      <span data-slot="5">5 MIST</span>
+      <span data-slot="6">6 DAWN</span>
+    </div>
+    <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 48</span><span class="reloading" id="ammo-reloading" hidden>RELOADING</span></div>
+  </div>
+
+  <div id="charge-chip" hidden>SPARK CHARGE &mdash; HOLD E AT A SITE</div>
+  <div id="plant-bar" class="panel" hidden>
+    <span class="label" id="plant-label">PLANTING</span>
+    <div class="track"><i id="plant-fill"></i></div>
+  </div>
+  <div id="hint"></div>
+</div>
+
+<div id="flash"></div>
+
+<div id="buy" hidden>
+  <div class="buy-panel">
+    <h2>SHRINE SUPPLY</h2>
+    <div class="buy-money" id="buy-money">$800</div>
+    <div class="buy-grid" id="buy-grid"></div>
+    <div class="buy-hint">Click a card to buy. Press B to close. Weapons you keep if you survive the round.</div>
+  </div>
+</div>
+
+<div id="overlay">
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+    <h1 id="overlay-title">JADE PASS</h1>
+    <p id="overlay-copy">A mountain shrine pass in the bamboo mist. 5v5 plant and defuse — carry the spark to Shrine A or River B, or hold the line.</p>
+    <button id="play" type="button">Click to play</button>
+    <ul class="keys">
+      <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
+      <li><kbd>Mouse</kbd> Look</li>
+      <li><kbd>Click</kbd> Fire</li>
+      <li><kbd>R</kbd> Reload</li>
+      <li><kbd>C</kbd> / <kbd>Ctrl</kbd> Crouch</li>
+      <li><kbd>Space</kbd> Jump</li>
+      <li><kbd>B</kbd> Buy</li>
+      <li><kbd>E</kbd> Plant / Defuse (hold)</li>
+      <li><kbd>G</kbd> Throw grenade</li>
+      <li><kbd>1</kbd>&ndash;<kbd>6</kbd> Weapons / grenades</li>
+    </ul>
+  </section>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
